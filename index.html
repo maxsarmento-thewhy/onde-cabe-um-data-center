@@ -10,17 +10,17 @@
 /* Layout: painel de condições à esquerda, mapa e balanço à direita; em tela estreita, empilha. */
 :root {
   --bg: #eef2ee; --panel: #ffffff; --ink: #1b2822; --muted: #5a6a62; --line: #d3dcd6;
-  --accent: #1d6670; --ok: #2f8a55; --near: #d39a1c; --off: #cfd8d2; --bad: #b8432f; --uf: #6d7d75;
+  --accent: #1d6670; --ok: #2f8a55; --near: #d39a1c; --f2: #d96a26; --f4: #7d2a1f; --off: #cfd8d2; --bad: #b8432f; --uf: #6d7d75;
   --f-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
   --f-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f1513; --panel: #17201c; --ink: #e2ebe5; --muted: #9aaba2; --line: #2b3832;
-  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; } }
+  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --f2: #ec8a45; --f4: #b9483a; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #0f1513; --panel: #17201c; --ink: #e2ebe5; --muted: #9aaba2; --line: #2b3832;
-  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; }
+  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --f2: #ec8a45; --f4: #b9483a; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; }
@@ -61,6 +61,13 @@ canvas#mapa { display: block; width: 100%; aspect-ratio: 1 / 0.98; max-width: 10
 .legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 0.8rem; }
 .legend span { display: flex; gap: 6px; align-items: center; }
 .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.mostrar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.86rem; }
+.mostrar > span { color: var(--muted); margin-right: 2px; }
+.mostrar label { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); cursor: pointer; }
+.mostrar label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mostrar input { margin: 0; accent-color: var(--accent); }
+@media (max-width: 640px) { .legend { position: static; margin: 0 10px 10px; } }
+.legend .num { margin-left: auto; padding-left: 10px; font-family: var(--f-data); font-variant-numeric: tabular-nums; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 .kpi { display: grid; gap: 2px; }
 .kpi b { font-family: var(--f-data); font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -238,13 +245,17 @@ td.r, th.r { text-align: right; font-family: var(--f-data); font-variant-numeric
   </aside>
 
   <main class="main">
+    <div class="mostrar" role="radiogroup" aria-label="Quais hexágonos mostrar no mapa">
+      <span>Mostrar no mapa</span>
+      <label><input type="radio" name="mostrar" value="0"> Cumprem todas</label>
+      <label><input type="radio" name="mostrar" value="1" checked> Até 1 falha</label>
+      <label><input type="radio" name="mostrar" value="2"> Até 2</label>
+      <label><input type="radio" name="mostrar" value="3"> Até 3</label>
+      <label><input type="radio" name="mostrar" value="99"> Todos</label>
+    </div>
     <div class="mapwrap">
       <canvas id="mapa" width="1000" height="980" aria-label="Mapa do Brasil com os hexágonos que cumprem as condições"></canvas>
-      <div class="legend" aria-hidden="true">
-        <span><i class="sw" style="background:var(--ok)"></i>Cumpre todas</span>
-        <span><i class="sw" style="background:var(--near)"></i>Falha em uma</span>
-        <span><i class="sw" style="background:var(--off)"></i>Falha em duas ou mais</span>
-      </div>
+      <div class="legend" id="legenda" aria-live="polite"></div>
       <div class="loading" id="loading">Carregando 31.392 hexágonos…</div>
     </div>
 
@@ -452,9 +463,15 @@ td.r, th.r { text-align: right; font-family: var(--f-data); font-variant-numeric
   function draw() {
     if (!res) return;
     const W = cv.width, H = cv.height, cOk = css("--ok"), cNear = css("--near"), cOff = css("--off"), cBg = css("--panel"), cUf = css("--uf"), cInk = css("--ink");
-    const cls = new Uint8Array(N + 1); cls[0] = 3;
-    for (let i = 0; i < N; i++) { const nf = res.fails[i].length; cls[i + 1] = nf === 0 ? 0 : nf === 1 ? 1 : 2; }
-    const pal = [rgb(cOk), rgb(cNear), rgb(cOff), rgb(cBg)], img = cx.createImageData(W, H), px = img.data;
+    // classe = número de falhas (0 a 3, e 4 = quatro ou mais); acima do filtro escolhido, cinza (5); 6 = fora da grade
+    const maxF = parseInt(document.querySelector('input[name="mostrar"]:checked')?.value ?? "1", 10);
+    const cls = new Uint8Array(N + 1), cont = [0, 0, 0, 0, 0]; cls[0] = 6;
+    for (let i = 0; i < N; i++) { const nf = res.fails[i].length, k = Math.min(nf, 4); cont[k]++; cls[i + 1] = nf > maxF ? 5 : k; }
+    const pal = [rgb(cOk), rgb(cNear), rgb(css("--f2")), rgb(css("--bad")), rgb(css("--f4")), rgb(cOff), rgb(cBg)], img = cx.createImageData(W, H), px = img.data;
+    const nomes = ["Cumpre todas", "Falha em uma", "Falha em duas", "Falha em três", "Falha em quatro ou mais"], vars = ["--ok", "--near", "--f2", "--bad", "--f4"];
+    const fora = cont.reduce((a, n, k) => a + (k > maxF ? n : 0), 0);
+    $("legenda").innerHTML = nomes.map((nm, k) => k <= maxF ? `<span><i class="sw" style="background:var(${vars[k]})"></i>${nm}<b class="num">${fmt(cont[k])}</b></span>` : "").join("")
+      + (fora ? `<span><i class="sw" style="background:var(--off)"></i>Fora do filtro<b class="num">${fmt(fora)}</b></span>` : "");
     for (let p = 0, q = 0; p < lab.length; p++, q += 4) { const c = pal[cls[lab[p]]]; px[q] = c[0]; px[q + 1] = c[1]; px[q + 2] = c[2]; px[q + 3] = 255; }
     cx.putImageData(img, 0, 0);
     if (UF) { cx.strokeStyle = cUf; cx.lineWidth = 0.8; cx.stroke(UF); }
@@ -564,6 +581,7 @@ td.r, th.r { text-align: right; font-family: var(--f-data); font-variant-numeric
     $("mw").addEventListener("input", () => { $("mwr").value = mw2r(+$("mw").value || 1); update(); });
     $("mwr").addEventListener("input", () => { $("mw").value = r2mw(+$("mwr").value); update(); });
     document.querySelectorAll("#presets button").forEach(b => b.addEventListener("click", () => applyPreset(b.dataset.p)));
+    document.querySelectorAll('input[name="mostrar"]').forEach(r => r.addEventListener("change", draw));
     cv.addEventListener("click", e => {
       const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
       const [la, lo] = view.inv(x, y), h = h3.latLngToCell(la, lo, 5);
