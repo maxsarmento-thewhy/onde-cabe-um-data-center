@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onde cabe um data center</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: painel de condições à esquerda, mapa e balanço à direita; em tela estreita, empilha. */
+:root {
+  --bg: #eef2ee; --panel: #ffffff; --ink: #1b2822; --muted: #5a6a62; --line: #d3dcd6;
+  --accent: #1d6670; --ok: #2f8a55; --near: #d39a1c; --off: #cfd8d2; --bad: #b8432f; --uf: #6d7d75;
+  --f-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1513; --panel: #17201c; --ink: #e2ebe5; --muted: #9aaba2; --line: #2b3832;
+  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1513; --panel: #17201c; --ink: #e2ebe5; --muted: #9aaba2; --line: #2b3832;
+  --accent: #5bb6c1; --ok: #4fbf7c; --near: #e3b043; --off: #27322d; --bad: #e2694f; --uf: #8fa198; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; font-weight: 700; }
+h3 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+p { margin: 0; }
+.num, .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+header.top { max-width: 1400px; margin: 0 auto 18px; display: grid; gap: 6px; }
+header.top p { color: var(--muted); max-width: 70ch; }
+.app { max-width: 1400px; margin: 0 auto; display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 860px) { .app { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.controls { position: sticky; top: env(safe-area-inset-top, 0px); max-height: calc(100vh - 24px); overflow-y: auto; }
+@media (max-width: 860px) { .controls { position: static; max-height: none; } }
+.group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.group:first-of-type { border-top: 0; padding-top: 0; }
+label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+label.row { justify-content: space-between; align-items: center; }
+.cond { display: grid; gap: 4px; }
+.cond .sub { padding-left: 26px; display: grid; gap: 2px; color: var(--muted); font-size: 0.86rem; }
+.cond .src { padding-left: 26px; color: var(--muted); font-size: 0.78rem; }
+input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+select, input[type="number"] { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+select { width: 100%; }
+input[type="number"] { width: 92px; font-family: var(--f-data); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.presets button { font: inherit; font-size: 0.86rem; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+.presets button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.presets button small { display: block; color: var(--muted); font-size: 0.75rem; }
+.disabled { opacity: 0.55; }
+.main { display: grid; gap: 18px; min-width: 0; }
+.mapwrap { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+canvas#mapa { display: block; width: 100%; aspect-ratio: 1 / 0.98; max-width: 100%; cursor: crosshair; }
+.legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 0.8rem; }
+.legend span { display: flex; gap: 6px; align-items: center; }
+.sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.kpi { display: grid; gap: 2px; }
+.kpi b { font-family: var(--f-data); font-size: 1.45rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.kpi small { color: var(--muted); font-size: 0.8rem; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 34px minmax(0, 1fr) 92px; gap: 8px; align-items: center; font-size: 0.85rem; }
+.bar .track { height: 12px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--ok); }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.r, th.r { text-align: right; font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.fails { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 0.78rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--bad); color: var(--bad); }
+.chip.okc { border-color: var(--ok); color: var(--ok); }
+.note { color: var(--muted); font-size: 0.84rem; max-width: 75ch; }
+.stack { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.stack i { display: block; height: 100%; }
+.refs { font-size: 0.82rem; color: var(--muted); display: grid; gap: 4px; }
+.refs a { color: var(--accent); }
+.loading { padding: 40px; text-align: center; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <h1>Onde cabe um data center</h1>
+  <p>Escolha o tipo e o tamanho do data center, ligue ou desligue as condições e veja no mapa onde ele caberia no Brasil. O país está dividido em 31.392 hexágonos de cerca de 250 km². Cada condição vem de uma base pública, citada ao lado do controle.</p>
+</header>
+
+<div class="app">
+  <aside class="panel controls" aria-label="Condições">
+    <div class="group">
+      <h3>Tipo de data center</h3>
+      <div class="presets" id="presets">
+        <button type="button" data-p="treino" aria-pressed="false">Treino de IA<small>hiperescala, 300 MW</small></button>
+        <button type="button" data-p="export" aria-pressed="false">Inferência para o exterior<small>perto de cabo submarino</small></button>
+        <button type="button" data-p="nuvem" aria-pressed="false">Nuvem e inferência nacional<small>até 1.000 km da demanda</small></button>
+        <button type="button" data-p="borda" aria-pressed="false">Colocation ou borda<small>perto da cidade, 20 MW</small></button>
+      </div>
+      <p class="note">Cada tipo só preenche os controles abaixo. Depois disso, tudo pode ser mudado.</p>
+    </div>
+
+    <div class="group">
+      <h3>Tamanho</h3>
+      <label class="row" for="mw">Carga de TI (MW) <input type="number" id="mw" min="1" max="10000" step="1" value="300"></label>
+      <input type="range" id="mwr" min="0" max="100" step="1" value="62" aria-label="Carga de TI">
+      <label for="dens">Densidade (MW por hectare de terreno)</label>
+      <select id="dens">
+        <option value="4.29">4,29 MW/ha · Pecém, CE (300 MW em 70 ha)</option>
+        <option value="6.79">6,79 MW/ha · Scala AI City, RS (4.750 MW em 700 ha)</option>
+        <option value="17.31">17,31 MW/ha · CloudHQ, Querétaro (900 MW em 52 ha)</option>
+      </select>
+      <p class="note">Terreno necessário: <b class="num" id="areaNeed">–</b></p>
+      <label for="util">Operação média da carga de TI</label>
+      <select id="util">
+        <option value="0.8">80% do ano · treino de IA</option>
+        <option value="0.5">50% · hiperescala convencional</option>
+        <option value="0.4">40% · inferência</option>
+        <option value="0.35">35% · colocation</option>
+      </select>
+      <p class="note">Tempos operacionais do relatório do LBNL de 2024 (Shehabi et al., p. 27 do PDF): treino e inferência constantes, hiperescala e colocation em 2027.</p>
+    </div>
+
+    <div class="group" id="conds">
+      <h3>Condições</h3>
+
+      <div class="cond">
+        <label for="c_rede"><input type="checkbox" id="c_rede" checked> Rede elétrica</label>
+        <div class="sub">
+          <select id="rede_modo" aria-label="Critério de rede">
+            <option value="env">Perto de rede como a dos data centers que já existem</option>
+            <option value="nt">Barramento com margem para a carga, NT 0083 do ONS</option>
+          </select>
+          <label class="row" for="rede_km">Raio até o barramento (km) <span class="num" id="rede_kmv">50</span></label>
+          <input type="range" id="rede_km" min="10" max="200" step="5" value="50">
+        </div>
+        <p class="src">Envelope: linhas, subestações e geração em torno dos 10% de lugares menos parecidos com onde há data centers hoje. Margem: capacidade remanescente para carga em 28 barramentos, 2027 a 2029+.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_agua"><input type="checkbox" id="c_agua" checked> Fora de microbacia com água comprometida</label>
+        <p class="src">ANA, Base Hidrográfica Ottocodificada e balanço hídrico: exclui a classe muito alta, crítica ou intermitente na maioria do hexágono.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_sub"><input type="checkbox" id="c_sub"> Reserva de água subterrânea mínima</label>
+        <div class="sub">
+          <label class="row" for="sub_min">Reserva explotável do aquífero (L/s por km²) ≥ <span class="num" id="sub_minv">1,0</span></label>
+          <input type="range" id="sub_min" min="0" max="4" step="0.1" value="1">
+        </div>
+        <p class="src">ANA, Disponibilidade Hídrica dos Sistemas Aquíferos (1:1.000.000). Valor do sistema inteiro dividido pela sua área. Sem valor para parte do território.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_prot"><input type="checkbox" id="c_prot" checked> Fora de terra indígena, território quilombola e unidade de proteção integral</label>
+        <p class="src">FUNAI; IBGE, Censo 2022 (territórios quilombolas oficialmente delimitados); MMA, CNUC 2025. Exclui o hexágono quando essas áreas, mais a água, ocupam a maioria dele.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_us"><input type="checkbox" id="c_us"> Fora de unidade de conservação de uso sustentável</label>
+        <p class="src">MMA, CNUC 2025. Inclui as APAs, que cobrem áreas grandes e permitem ocupação.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_nat"><input type="checkbox" id="c_nat" checked> Fora de vegetação nativa</label>
+        <p class="src">MapBiomas Coleção 11, mapa de 2025. Exclui o hexágono com maioria de vegetação nativa e conta como disponível só a área já convertida.</p>
+      </div>
+
+      <div class="cond" id="cond_desm">
+        <label for="c_desm"><input type="checkbox" id="c_desm" checked> Sem desmatamento recente</label>
+        <div class="sub">
+          <label class="row" for="desm_max">Área desmatada desde agosto de 2015 ≤ <span class="num" id="desm_maxv">5%</span></label>
+          <input type="range" id="desm_max" min="0" max="30" step="1" value="5">
+        </div>
+        <p class="src" id="desm_src">INPE, PRODES, polígonos anuais de desmatamento dos seis biomas, anos PRODES 2016 em diante (agosto de 2015 em diante). A área desmatada nesse período também deixa de contar como terreno disponível.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_viz"><input type="checkbox" id="c_viz" checked> Sem morador por perto</label>
+        <div class="sub">
+          <select id="viz_km" aria-label="Distância sem morador">
+            <option value="1">Nenhum morador a 1 km</option>
+            <option value="2" selected>Nenhum morador a 2 km</option>
+          </select>
+        </div>
+        <p class="src">IBGE, Grade Estatística do Censo 2022, células de 1 km. Exige área sem morador maior que o terreno do data center. Ruído, diesel de reserva e obras são impactos de vizinhança.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_cabo"><input type="checkbox" id="c_cabo"> Perto de cabo submarino internacional</label>
+        <div class="sub">
+          <label class="row" for="cabo_km">Distância máxima (km) <span class="num" id="cabo_kmv">250</span></label>
+          <input type="range" id="cabo_km" min="25" max="1000" step="25" value="250">
+        </div>
+        <p class="src">TeleGeography, 13 cabos internacionais em operação com chegada em 8 pontos do litoral.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_centro"><input type="checkbox" id="c_centro"> Perto de centro de demanda</label>
+        <div class="sub">
+          <label class="row" for="centro_km">Distância máxima (km) <span class="num" id="centro_kmv">1000</span></label>
+          <input type="range" id="centro_km" min="25" max="1500" step="25" value="1000">
+        </div>
+        <p class="src">IBGE, municípios com 500 mil habitantes ou mais (41 centros).</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_clima"><input type="checkbox" id="c_clima"> Clima bom para resfriar com ar externo</label>
+        <div class="sub">
+          <label class="row" for="clima_max">Meses fora da faixa ≤ <span class="num" id="clima_maxv">6</span></label>
+          <input type="range" id="clima_max" min="0" max="12" step="1" value="6">
+        </div>
+        <p class="src">WorldClim 2.1 com o critério de Karamperidou et al. (2026): mês fora quando a máxima passa de 25,5 °C e o ar é úmido demais.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_decl"><input type="checkbox" id="c_decl"> Relevo plano</label>
+        <div class="sub">
+          <label class="row" for="decl_max">Declividade média ≤ <span class="num" id="decl_maxv">10%</span></label>
+          <input type="range" id="decl_max" min="2" max="30" step="1" value="10">
+        </div>
+        <p class="src">Copernicus GLO-90.</p>
+      </div>
+
+      <div class="cond">
+        <label for="c_corte"><input type="checkbox" id="c_corte"> Energia renovável cortada por perto</label>
+        <div class="sub">
+          <label class="row" for="corte_min">Corte a até 100 km ≥ <span class="num" id="corte_minv">500</span> GWh/ano</label>
+          <input type="range" id="corte_min" min="0" max="5000" step="100" value="500">
+        </div>
+        <p class="src">ONS, geração eólica e solar limitada por usina, agosto de 2025 a julho de 2026. É a energia que uma carga ali poderia usar sem pedir geração nova.</p>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="mapwrap">
+      <canvas id="mapa" width="1000" height="980" aria-label="Mapa do Brasil com os hexágonos que cumprem as condições"></canvas>
+      <div class="legend" aria-hidden="true">
+        <span><i class="sw" style="background:var(--ok)"></i>Cumpre todas</span>
+        <span><i class="sw" style="background:var(--near)"></i>Falha em uma</span>
+        <span><i class="sw" style="background:var(--off)"></i>Falha em duas ou mais</span>
+      </div>
+      <div class="loading" id="loading">Carregando 31.392 hexágonos…</div>
+    </div>
+
+    <section class="panel" aria-label="Balanço">
+      <h2 id="resumoTit">Balanço</h2>
+      <div class="kpis">
+        <div class="kpi"><small>Hexágonos que cumprem tudo</small><b id="kHex">–</b></div>
+        <div class="kpi"><small>Área disponível neles</small><b id="kArea">–</b></div>
+        <div class="kpi"><small>Vezes que o terreno cabe</small><b id="kVezes">–</b></div>
+        <div class="kpi"><small>Hexágonos que falham em uma só</small><b id="kNear">–</b></div>
+      </div>
+      <div class="two">
+        <div class="bars" id="porRegiao" aria-label="Área disponível por região"></div>
+        <div class="tbl"><table><thead><tr><th>Condição que mais barra</th><th class="r">Hexágonos</th></tr></thead><tbody id="barra"></tbody></table></div>
+      </div>
+      <p class="note">Hexágonos barrados por cada condição contados entre os que falham em uma só, que é onde mudar aquela condição abriria território.</p>
+    </section>
+
+    <section class="panel" aria-label="Hexágono escolhido">
+      <h2>Hexágono escolhido</h2>
+      <div id="info"><p class="note">Clique no mapa para ver os valores de um hexágono e as condições em que ele falha.</p></div>
+    </section>
+
+    <section class="panel" aria-label="Água e emissões">
+      <h2>Água e emissões do data center escolhido</h2>
+      <div class="two">
+        <div class="cond">
+          <label for="pue" class="row">PUE (energia total ÷ energia de TI) <input type="number" id="pue" min="1.05" max="2.5" step="0.01" value="1.54"></label>
+          <p class="src">1,54 é a média ponderada do levantamento do Uptime Institute de 2025.</p>
+          <label for="resf">Resfriamento</label>
+          <select id="resf">
+            <option value="evap">Evaporativo · 1,8 L por kWh de TI</option>
+            <option value="ar">A ar, circuito fechado · 97% menos água no local, 32% mais eletricidade</option>
+          </select>
+          <p class="src">1,8 L/kWh: Liang (2026), São Paulo. Troca para ar: Michigan, chiller a água para chiller a ar (arXiv 2609.25437).</p>
+          <label for="hidro" class="row">Parte hidrelétrica da energia <span class="num" id="hidrov">60%</span></label>
+          <input type="range" id="hidro" min="0" max="100" step="5" value="60">
+          <label for="evapf">Evaporação nos reservatórios (m³ por MWh hidrelétrico)</label>
+          <select id="evapf">
+            <option value="1.72">1,72 · média</option>
+            <option value="0.1">0,1 · usina a fio d'água</option>
+            <option value="4.0">4,0 · marginal em seca</option>
+          </select>
+          <p class="src">Fatores e parte hidrelétrica de Liang (2026).</p>
+          <label for="cob" class="row">Energia vinda de corte renovável <span class="num" id="cobv">0%</span></label>
+          <input type="range" id="cob" min="0" max="100" step="1" value="0">
+          <p class="src">No Nordeste, uma carga plana de 1.000 MW teria 71,7% da energia coberta por corte (medição deste estudo, 12 meses).</p>
+          <label for="vida" class="row">Vida dos servidores (anos) <input type="number" id="vida" min="2" max="10" step="1" value="4"></label>
+          <label for="ger_auto"><input type="checkbox" id="ger_auto" checked> De 10 a 15 geradores para cada 30 MW, cada um testado 100 h por ano</label>
+          <label for="ger" class="row">Ou informe o número de geradores <input type="number" id="ger" min="0" max="5000" step="1" value="0"></label>
+          <label for="refr" class="row">Carga de refrigerante R-410A (kg) <input type="number" id="refr" min="0" max="100000" step="100" value="0"></label>
+          <p class="src">Eslami (2025) dá cerca de 130 tCO₂ por gerador de 2,5 MW testado 100 h por ano, e de 10 a 15 geradores num data center de 30 MW, dimensionados para a carga total do local. A carga de refrigerante por MW não tem fonte e entra como dado do projeto.</p>
+        </div>
+        <div class="cond" style="gap:12px">
+          <div class="tbl"><table><tbody id="calc"></tbody></table></div>
+          <div>
+            <h3>De onde vem a emissão anual</h3>
+            <div class="stack" id="stack" aria-label="Composição da emissão"></div>
+            <div class="refs" id="stackLeg"></div>
+          </div>
+          <p class="note" id="leitura"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Ruído">
+      <h2>Ruído</h2>
+      <p class="note">Não há medição padronizada de ruído de data center: uma revisão de 2026 achou valores de 39 a mais de 70 dB(A), medidos em posições e com instrumentos diferentes, com tom contínuo de baixa frequência entre 70 e 140 Hz que a ponderação A subestima. Geradores de reserva medidos a 1 m marcam 75 a 77 dB(A) e caem para 52 a 58 dB(A) entre 20 e 60 m. Em Virgínia, uma medição deu 28,0 dB a 60 m de um data center contra 22,3 dB num bairro a 3,2 km. Uma simulação em Beaver County, Pensilvânia, mostra que o relevo pode concentrar o ruído em encostas até 2,5 km. Por isso o mapa usa a distância até o morador mais próximo, de 1 ou 2 km.</p>
+    </section>
+
+    <section class="panel" aria-label="Fontes">
+      <h2>Fontes</h2>
+      <div class="refs">
+        <p>Rede: ONS, NT-ONS DPL 0083/2026 e Comunicados Relevantes 04, 06 e 08/2026; SIGEL/ANEEL; PeeringDB. Método de envelope: Janosov (2026), arXiv 2602.02529.</p>
+        <p>Água: ANA, BHQ e balanço hídrico 2020; ANA, Disponibilidade Hídrica dos Sistemas Aquíferos; Liang (2026), <a href="https://doi.org/10.1017/wat.2026.10020" target="_blank" rel="noopener">doi 10.1017/wat.2026.10020</a>; troca de resfriamento, <a href="https://doi.org/10.48550/arxiv.2609.25437" target="_blank" rel="noopener">arXiv 2609.25437</a>.</p>
+        <p>Terra: MapBiomas Coleção 11; MMA, CNUC 2025; FUNAI; IBGE, Censo 2022, territórios quilombolas; Copernicus GLO-90.</p>
+        <p>Vizinhança e ruído: IBGE, Grade Estatística 2022; revisão de ruído, <a href="https://doi.org/10.48550/arxiv.2610.03975" target="_blank" rel="noopener">arXiv 2610.03975</a>; simulação de propagação, <a href="https://doi.org/10.48550/arxiv.2610.14899" target="_blank" rel="noopener">arXiv 2610.14899</a>.</p>
+        <p>Conectividade e clima: TeleGeography; IBGE; WorldClim 2.1; Karamperidou et al. (2026), <a href="https://doi.org/10.1038/s41598-026-56926-3" target="_blank" rel="noopener">Scientific Reports</a>.</p>
+        <p>Emissões: MCTI, fatores de emissão do SIN, inventário e margem de operação de 2025; Aslan et al. (2024), <a href="https://doi.org/10.1016/j.isci.2024.111637" target="_blank" rel="noopener">iScience</a>; Alissa et al. (2025), <a href="https://doi.org/10.1038/s41586-025-08832-3" target="_blank" rel="noopener">Nature</a>; Eslami (2025), <a href="https://doi.org/10.48550/arXiv.2509.21312" target="_blank" rel="noopener">arXiv 2509.21312</a>.</p>
+        <p>Densidade: MPF (2026) sobre o Data Center Pecém; Scala Data Centers (2024); Presidência do México (2025). Operação e PUE: Shehabi et al. (2024), LBNL; Uptime Institute (2025).</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const fmt = (x, d = 0) => (x == null || isNaN(x)) ? "–" : x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const REG = ["N", "NE", "CO", "SE", "S"];
+  const REGN = { N: "Norte", NE: "Nordeste", CO: "Centro-Oeste", SE: "Sudeste", S: "Sul" };
+  const COND = { rede: "rede elétrica", agua: "água superficial", sub: "água subterrânea", prot: "área protegida ou tradicional",
+    us: "uso sustentável", nat: "vegetação nativa", desm: "desmatamento recente", viz: "morador por perto", area: "terreno insuficiente",
+    cabo: "longe de cabo", centro: "longe da demanda", clima: "clima", decl: "relevo", corte: "pouco corte por perto" };
+  // fatores com fonte
+  const FE_MEDIO = 0.0461, FE_MO = 0.4125, FE_MO_MIN = 0.2146, FE_MO_MAX = 0.578;   // MCTI 2025, tCO2/MWh
+  const WUE_EVAP = 1.8, AR_AGUA = 0.03, AR_ELET = 1.32;                              // L/kWh; fração; fator
+  const SERV_MW = [500, 1000], T_SERV = [1.2, 2.0], T_GER = 130, GER_MW = [10 / 30, 15 / 30], REF_T = [42, 104];
+
+  let D, N, bounds = [], idx = new Map(), res, sel = null, view, lab;
+  const cv = $("mapa"), cx = cv.getContext("2d");
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // escala logarítmica do tamanho: 1 a 10.000 MW
+  const r2mw = r => Math.round(Math.pow(10, r / 25));
+  const mw2r = m => Math.round(25 * Math.log10(Math.max(1, m)));
+
+  const PRESETS = {
+    treino: { mw: 300, util: "0.8", c_cabo: false, c_centro: false, c_viz: true, viz_km: "2", c_clima: false },
+    export: { mw: 100, util: "0.4", c_cabo: true, cabo_km: 250, c_centro: false, c_viz: true, viz_km: "1", c_clima: false },
+    nuvem: { mw: 100, util: "0.5", c_cabo: false, c_centro: true, centro_km: 1000, c_viz: true, viz_km: "1", c_clima: false },
+    borda: { mw: 20, util: "0.35", c_cabo: false, c_centro: true, centro_km: 100, c_viz: false, c_clima: false },
+  };
+
+  function applyPreset(k) {
+    const p = PRESETS[k];
+    for (const [id, v] of Object.entries(p)) {
+      if (id === "mw") { $("mw").value = v; $("mwr").value = mw2r(v); continue; }
+      const el = $(id); if (!el) continue;
+      if (el.type === "checkbox") el.checked = v; else el.value = v;
+    }
+    document.querySelectorAll("#presets button").forEach(b => b.setAttribute("aria-pressed", b.dataset.p === k ? "true" : "false"));
+    update();
+  }
+
+  function hav(la1, lo1, la2, lo2) {
+    const r = Math.PI / 180, a = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(a));
+  }
+
+  function state() {
+    const v = id => $(id).value, c = id => $(id).checked, n = id => parseFloat($(id).value);
+    const mw = Math.max(1, n("mw")), dens = n("dens");
+    return { mw, dens, needKm2: mw / dens / 100, util: n("util"),
+      rede: c("c_rede"), redeModo: v("rede_modo"), redeKm: n("rede_km"), agua: c("c_agua"), sub: c("c_sub"), subMin: n("sub_min"),
+      prot: c("c_prot"), us: c("c_us"), nat: c("c_nat"), desm: c("c_desm") && !!D.share_desmat, desmMax: n("desm_max") / 100,
+      viz: c("c_viz"), vizKm: v("viz_km"), cabo: c("c_cabo"), caboKm: n("cabo_km"), centro: c("c_centro"), centroKm: n("centro_km"),
+      clima: c("c_clima"), climaMax: n("clima_max"), decl: c("c_decl"), declMax: n("decl_max"), corte: c("c_corte"), corteMin: n("corte_min") };
+  }
+
+  function evaluate(s) {
+    const fails = new Array(N), avail = new Float32Array(N);
+    let barOk = null;
+    if (s.rede && s.redeModo === "nt") {
+      const bs = D.barramentos.filter(b => b.cap_mw >= s.mw);
+      barOk = new Uint8Array(N);
+      if (bs.length) for (let i = 0; i < N; i++) for (const b of bs) if (hav(D.lat[i], D.lon[i], b.lat, b.lon) <= s.redeKm) { barOk[i] = 1; break; }
+    }
+    for (let i = 0; i < N; i++) {
+      const f = [];
+      if (s.rede) { if (barOk ? !barOk[i] : !D.rede[i]) f.push("rede"); }
+      if (s.agua && !D.agua[i]) f.push("agua");
+      if (s.sub && !((D.aquifero_rpe_ls_km2[i] ?? -1) >= s.subMin)) f.push("sub");
+      const prot = (D.share_pi_ti[i] || 0) + (D.share_tq[i] || 0), agua = D.share_agua[i] || 0, us = D.share_us[i] || 0, nat = D.share_nativa[i] || 0;
+      let excl = (s.prot ? prot : 0) + agua * (1 - Math.min(1, prot));
+      if (s.prot && excl >= 0.5) f.push("prot");
+      if (s.us) { if (us >= 0.5) f.push("us"); excl += us; }
+      let frac = Math.max(0, 1 - excl);
+      if (s.nat) { if (nat >= 0.5) f.push("nat"); frac = Math.max(0, frac - nat); }
+      if (s.desm) { const dm = D.share_desmat[i] || 0; if (dm > s.desmMax) f.push("desm"); frac = Math.max(0, frac - dm); }
+      avail[i] = (D.area_km2[i] || 0) * frac;
+      if (avail[i] < s.needKm2) f.push("area");
+      if (s.viz) { const a = s.vizKm === "2" ? D.area_sem_vizinho_2km_km2[i] : D.area_sem_vizinho_1km_km2[i]; if (!((a || 0) >= Math.max(1, s.needKm2))) f.push("viz"); }
+      if (s.cabo && !((D.dist_cabo_intl_km[i] ?? 1e9) <= s.caboKm)) f.push("cabo");
+      if (s.centro && !((D.dist_centro_km[i] ?? 1e9) <= s.centroKm)) f.push("centro");
+      if (s.clima && !((D.meses_fora_spec[i] ?? 99) <= s.climaMax)) f.push("clima");
+      if (s.decl && !((D.decl_media_pct[i] ?? 99) <= s.declMax)) f.push("decl");
+      if (s.corte && !((D.corte_100km_gwh[i] || 0) >= s.corteMin)) f.push("corte");
+      fails[i] = f;
+    }
+    return { fails, avail, s };
+  }
+
+  function rgb(s) {
+    s = s.trim();
+    if (s[0] === "#") { if (s.length === 4) s = "#" + [...s.slice(1)].map(c => c + c).join(""); return [1, 3, 5].map(k => parseInt(s.slice(k, k + 2), 16)); }
+    const m = s.match(/\d+(\.\d+)?/g) || [0, 0, 0]; return m.slice(0, 3).map(Number);
+  }
+
+  function setupView() {
+    const W = cv.width, H = cv.height, lon0 = -74.5, lon1 = -33.5, lat0 = -34.2, lat1 = 5.6, k = Math.cos(-15 * Math.PI / 180);
+    const sx = W / ((lon1 - lon0) * k), sy = H / (lat1 - lat0), sc = Math.min(sx, sy);
+    const ox = (W - (lon1 - lon0) * k * sc) / 2, oy = (H - (lat1 - lat0) * sc) / 2;
+    view = { px: lon => ox + (lon - lon0) * k * sc, py: lat => oy + (lat1 - lat) * sc,
+      inv: (x, y) => [lat1 - (y - oy) / sc, lon0 + (x - ox) / (k * sc)] };
+    // Rasteriza uma vez qual hexágono ocupa cada pixel (centro do pixel, varredura por linha). Traçar 190 mil
+    // vértices a cada mudança custava de 2 a 3 s; pintar pixels por classe custa milissegundos.
+    lab = new Int32Array(W * H);
+    for (let i = 0; i < N; i++) {
+      const b = bounds[i], xs = b.map(v => view.px(v[1])), ys = b.map(v => view.py(v[0])), m = b.length;
+      const r0 = Math.max(0, Math.ceil(Math.min(...ys) - 0.5)), r1 = Math.min(H - 1, Math.floor(Math.max(...ys) - 0.5));
+      for (let r = r0; r <= r1; r++) {
+        const yc = r + 0.5; let xl = Infinity, xr = -Infinity;
+        for (let j = 0; j < m; j++) {
+          const x1 = xs[j], y1 = ys[j], x2 = xs[(j + 1) % m], y2 = ys[(j + 1) % m];
+          if ((y1 <= yc && y2 > yc) || (y2 <= yc && y1 > yc)) { const x = x1 + (yc - y1) * (x2 - x1) / (y2 - y1); if (x < xl) xl = x; if (x > xr) xr = x; }
+        }
+        const c0 = Math.max(0, Math.ceil(xl - 0.5)), c1 = Math.min(W - 1, Math.floor(xr - 0.5));
+        for (let c = c0; c <= c1; c++) lab[r * W + c] = i + 1;
+      }
+    }
+  }
+
+  function draw() {
+    if (!res) return;
+    const W = cv.width, H = cv.height, cOk = css("--ok"), cNear = css("--near"), cOff = css("--off"), cBg = css("--panel"), cUf = css("--uf"), cInk = css("--ink");
+    const cls = new Uint8Array(N + 1); cls[0] = 3;
+    for (let i = 0; i < N; i++) { const nf = res.fails[i].length; cls[i + 1] = nf === 0 ? 0 : nf === 1 ? 1 : 2; }
+    const pal = [rgb(cOk), rgb(cNear), rgb(cOff), rgb(cBg)], img = cx.createImageData(W, H), px = img.data;
+    for (let p = 0, q = 0; p < lab.length; p++, q += 4) { const c = pal[cls[lab[p]]]; px[q] = c[0]; px[q + 1] = c[1]; px[q + 2] = c[2]; px[q + 3] = 255; }
+    cx.putImageData(img, 0, 0);
+    if (UF) { cx.strokeStyle = cUf; cx.lineWidth = 0.8; cx.stroke(UF); }
+    if (sel != null) {
+      const b = bounds[sel]; cx.beginPath(); cx.moveTo(view.px(b[0][1]), view.py(b[0][0]));
+      for (let j = 1; j < b.length; j++) cx.lineTo(view.px(b[j][1]), view.py(b[j][0]));
+      cx.closePath(); cx.strokeStyle = cInk; cx.lineWidth = 2.5; cx.stroke();
+    }
+    if (res.s.rede && res.s.redeModo === "nt") {
+      for (const b of D.barramentos) {
+        cx.beginPath(); cx.arc(view.px(b.lon), view.py(b.lat), b.cap_mw >= res.s.mw ? 5 : 3, 0, 2 * Math.PI);
+        cx.fillStyle = b.cap_mw >= res.s.mw ? cInk : cUf; cx.fill();
+      }
+    }
+  }
+
+  let UF = null;
+  function buildUF(g) {
+    const p = new Path2D();
+    const ring = r => { r.forEach((c, j) => j ? p.lineTo(view.px(c[0]), view.py(c[1])) : p.moveTo(view.px(c[0]), view.py(c[1]))); p.closePath(); };
+    for (const f of g.features) {
+      const gm = f.geometry; if (!gm) continue;
+      if (gm.type === "Polygon") gm.coordinates.forEach(ring); else if (gm.type === "MultiPolygon") gm.coordinates.forEach(pl => pl.forEach(ring));
+    }
+    UF = p;
+  }
+
+  function summary() {
+    const s = res.s; let nOk = 0, nNear = 0, area = 0; const porReg = {}, near = {}, porUf = {};
+    REG.forEach(r => porReg[r] = 0);
+    for (let i = 0; i < N; i++) {
+      const f = res.fails[i];
+      if (!f.length) { nOk++; area += res.avail[i]; porReg[D.reg[i]] = (porReg[D.reg[i]] || 0) + res.avail[i]; porUf[D.uf[i]] = (porUf[D.uf[i]] || 0) + res.avail[i]; }
+      else if (f.length === 1) { nNear++; near[f[0]] = (near[f[0]] || 0) + 1; }
+    }
+    $("areaNeed").textContent = s.needKm2 >= 1 ? fmt(s.needKm2, 1) + " km²" : fmt(s.needKm2 * 100, 1) + " ha";
+    $("kHex").textContent = fmt(nOk); $("kNear").textContent = fmt(nNear);
+    $("kArea").textContent = fmt(area / 1000, 1) + " mil km²";
+    $("kVezes").textContent = nOk ? fmt(area / s.needKm2) : "0";
+    const mx = Math.max(1, ...Object.values(porReg));
+    $("porRegiao").innerHTML = "<h3>Área disponível por região</h3>" + REG.map(r =>
+      `<div class="bar"><span class="mono">${r}</span><div class="track"><div class="fill" style="width:${(100 * porReg[r] / mx).toFixed(1)}%"></div></div><span class="num" style="text-align:right">${fmt(porReg[r] / 1000, 1)} mil km²</span></div>`).join("")
+      + `<p class="note">Estados com mais área: ${Object.entries(porUf).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, a]) => `${u} ${fmt(a / 1000, 1)}`).join(" · ") || "nenhum"}.</p>`;
+    $("barra").innerHTML = Object.entries(near).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${COND[k]}</td><td class="r">${fmt(v)}</td></tr>`).join("") || `<tr><td colspan="2">Nenhum hexágono falha em uma só condição.</td></tr>`;
+  }
+
+  function info() {
+    if (sel == null) return;
+    const i = sel, f = res.fails[i], v = (a, d = 0, u = "") => (D[a] && D[a][i] != null) ? fmt(D[a][i], d) + u : "sem dado";
+    const rows = [
+      ["Estado e região", `${D.uf[i]} · ${REGN[D.reg[i]] || D.reg[i]}`],
+      ["Área do hexágono", v("area_km2", 0, " km²")], ["Área disponível com as condições", fmt(res.avail[i], 0) + " km²"],
+      ["Moradores (Censo 2022)", v("pop_2022")], ["Área sem morador a 1 km / 2 km", `${v("area_sem_vizinho_1km_km2")} / ${v("area_sem_vizinho_2km_km2")} km²`],
+      ["Terra indígena, quilombola ou proteção integral", fmt(100 * ((D.share_pi_ti[i] || 0) + (D.share_tq[i] || 0)), 0) + "%"],
+      ["Vegetação nativa", fmt(100 * (D.share_nativa[i] || 0), 0) + "%"],
+      ...(D.share_desmat ? [["Desmatada desde agosto de 2015 (PRODES)", fmt(100 * (D.share_desmat[i] || 0), 1) + "%"]] : []),
+      ["Água superficial", D.agua[i] ? "microbacia sem comprometimento restritivo" : "microbacia com comprometimento restritivo"],
+      ["Aquífero", `${D.aquifero[i] || "sem dado"} · ${v("aquifero_rpe_ls_km2", 2, " L/s/km²")}`],
+      ["Cabo internacional mais perto", `${v("dist_cabo_intl_km", 0, " km")} (${D.lp[i]})`],
+      ["Centro de demanda mais perto", v("dist_centro_km", 0, " km")], ["Meses fora da faixa de resfriamento", v("meses_fora_spec")],
+      ["Declividade média", v("decl_media_pct", 1, "%")], ["Corte renovável a até 100 km", v("corte_100km_gwh", 0, " GWh/ano")],
+    ];
+    $("info").innerHTML = `<div class="fails">${f.length ? f.map(k => `<span class="chip">${COND[k]}</span>`).join("") : '<span class="chip okc">cumpre todas as condições</span>'}</div>
+      <div class="tbl"><table><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function calc() {
+    const s = state(), pue = Math.max(1, parseFloat($("pue").value) || 1.54), ar = $("resf").value === "ar";
+    const itMWh = s.mw * 8760 * s.util, pueE = ar ? pue * AR_ELET : pue, totMWh = itMWh * pueE;
+    const direta = itMWh * 1000 * WUE_EVAP * (ar ? AR_AGUA : 1) / 1000;         // m³
+    const hidro = parseFloat($("hidro").value) / 100, evf = parseFloat($("evapf").value), indireta = totMWh * hidro * evf;
+    const cob = parseFloat($("cob").value) / 100, vida = Math.max(1, parseFloat($("vida").value) || 4);
+    const eMed = totMWh * FE_MEDIO, eMO = totMWh * (1 - cob) * FE_MO;
+    const serv = [s.mw * SERV_MW[0] * T_SERV[0] / vida, s.mw * SERV_MW[1] * T_SERV[1] / vida];
+    const nGer = $("ger_auto").checked ? [Math.ceil(s.mw * GER_MW[0]), Math.ceil(s.mw * GER_MW[1])] : [parseFloat($("ger").value) || 0, parseFloat($("ger").value) || 0];
+    const gerR = [nGer[0] * T_GER, nGer[1] * T_GER], ger = (gerR[0] + gerR[1]) / 2, kg = parseFloat($("refr").value) || 0, ref = [kg / 1000 * REF_T[0], kg / 1000 * REF_T[1]];
+    const lps = m3 => fmt(m3 * 1000 / (8760 * 3600), 0) + " L/s";
+    const rows = [
+      ["Eletricidade por ano", fmt(totMWh / 1000, 0) + " GWh"],
+      ["Água no local (resfriamento)", fmt(direta / 1000, 0) + " mil m³ · " + lps(direta)],
+      ["Água evaporada na geração", fmt(indireta / 1000, 0) + " mil m³ · " + lps(indireta)],
+      ["CO₂ da eletricidade, fator médio do SIN", fmt(eMed, 0) + " t"],
+      ["CO₂ da eletricidade, margem de operação", fmt(eMO, 0) + " t"],
+      ["Fabricação dos servidores, por ano de vida", fmt(serv[0], 0) + " a " + fmt(serv[1], 0) + " t"],
+      [nGer[0] === nGer[1] ? `Teste de ${fmt(nGer[0])} geradores a diesel` : `Teste de ${fmt(nGer[0])} a ${fmt(nGer[1])} geradores a diesel`, nGer[0] === nGer[1] ? fmt(gerR[0], 0) + " t" : fmt(gerR[0], 0) + " a " + fmt(gerR[1], 0) + " t"], ["Vazamento de refrigerante", fmt(ref[0], 0) + " a " + fmt(ref[1], 0) + " t CO₂e"],
+    ];
+    $("calc").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td></tr>`).join("");
+    const parts = [["eletricidade (margem)", eMO, "--bad"], ["servidores", (serv[0] + serv[1]) / 2, "--accent"], ["diesel", ger, "--near"], ["refrigerante", (ref[0] + ref[1]) / 2, "--uf"]];
+    const tot = parts.reduce((a, p) => a + p[1], 0) || 1;
+    $("stack").innerHTML = parts.map(p => `<i style="width:${(100 * p[1] / tot).toFixed(2)}%;background:var(${p[2]})" title="${p[0]}"></i>`).join("");
+    $("stackLeg").innerHTML = parts.map(p => `<span><i class="sw" style="display:inline-block;background:var(${p[2]})"></i> ${p[0]}: ${fmt(100 * p[1] / tot, 0)}%</span>`).join("");
+    $("leitura").textContent = `Pelo fator médio de 2025 (${fmt(FE_MEDIO, 4)} tCO₂/MWh) a eletricidade emitiria ${fmt(eMed, 0)} t por ano. Uma carga nova, porém, é atendida pelas usinas da margem, cujo fator foi de ${fmt(FE_MO_MIN, 3)} a ${fmt(FE_MO_MAX, 3)} tCO₂/MWh nos meses de 2025 (média ${fmt(FE_MO, 3)}), salvo a parte que vier de energia que seria cortada. A composição usa a margem e o ponto médio das faixas.`;
+  }
+
+  let pend = false;
+  function update() {
+    if (!D) return;
+    if (!pend) { pend = true; requestAnimationFrame(() => { pend = false; res = evaluate(state()); draw(); summary(); info(); calc(); }); }
+  }
+
+  function bind() {
+    const live = [["rede_km", "rede_kmv", x => x], ["sub_min", "sub_minv", x => fmt(+x, 1)], ["desm_max", "desm_maxv", x => x + "%"], ["cabo_km", "cabo_kmv", x => x],
+      ["centro_km", "centro_kmv", x => x], ["clima_max", "clima_maxv", x => x], ["decl_max", "decl_maxv", x => x + "%"], ["corte_min", "corte_minv", x => fmt(+x)],
+      ["hidro", "hidrov", x => x + "%"], ["cob", "cobv", x => x + "%"]];
+    live.forEach(([a, b, f]) => { $(a).addEventListener("input", () => { $(b).textContent = f($(a).value); update(); }); });
+    document.querySelectorAll("#conds input, #conds select, #dens, #util, #pue, #resf, #evapf, #vida, #ger, #ger_auto, #refr").forEach(el => el.addEventListener("input", update));
+    $("mw").addEventListener("input", () => { $("mwr").value = mw2r(+$("mw").value || 1); update(); });
+    $("mwr").addEventListener("input", () => { $("mw").value = r2mw(+$("mwr").value); update(); });
+    document.querySelectorAll("#presets button").forEach(b => b.addEventListener("click", () => applyPreset(b.dataset.p)));
+    cv.addEventListener("click", e => {
+      const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
+      const [la, lo] = view.inv(x, y), h = h3.latLngToCell(la, lo, 5);
+      sel = idx.has(h) ? idx.get(h) : null; draw(); info();
+      if (sel == null) $("info").innerHTML = '<p class="note">Esse ponto fica fora da grade. Clique dentro do território.</p>';
+    });
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+    new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+
+  Promise.all([fetch("dados.json").then(r => r.json()), fetch("uf.geojson").then(r => r.json()).catch(() => null)]).then(([d, uf]) => {
+    D = d; N = D.h3.length;
+    D.h3.forEach((h, i) => { idx.set(h, i); bounds.push(h3.cellToBoundary(h)); });
+    setupView(); if (uf) buildUF(uf);
+    if (!D.share_desmat) { $("cond_desm").classList.add("disabled"); $("c_desm").disabled = true; $("desm_src").textContent = "Camada sem dado nesta versão."; }
+    $("loading").hidden = true; bind(); applyPreset("treino");
+  }).catch(err => { $("loading").textContent = "Os dados não carregaram: " + err.message; });
+})();
+</script>
